@@ -54,7 +54,7 @@ flowchart TD
         direction TB
         meta["Document metadata:<br/>config + one entry per note"]
         tmp["Temp render file:<br/>one page per note field"]
-        fields["Rendered fields:<br/>svg, png, or plain text"]
+        fields["Rendered fields:<br/>svg, png, or plain text<br/>(auto selects per field)"]
         notes["Anki notes:<br/>one per note() call"]
         reqs["AnkiConnect requests:<br/>addNotes / updateNote JSON"]
         meta -->|generate| tmp
@@ -160,7 +160,7 @@ lecture that compiles to a PDF *and* syncs to Anki.
 | `deck` | Target Anki deck. | `"Default"` |
 | `model` | Anki note type. | `"Basic"` |
 | `tags` | Array of tag strings. | `()` |
-| `format` | How fields render: `"png"`, `"svg"`, or `"plain"`. | `"svg"` |
+| `format` | How fields render: `"png"`, `"svg"`, `"plain"`, or `"auto"`. | `"svg"` |
 | `other` | Extra metadata passed through to AnkiConnect. | `none` |
 | `render` | Function transforming each field before it is rendered (advanced). | identity |
 
@@ -174,6 +174,8 @@ dictionary to override the format per field.
   card. Crisp, scalable, and **theme-aware** (see [Dark mode](#dark-mode) below).
 - `png` — the field is rendered to a raster image and attached as media. Use it
   for genuinely raster content.
+- `auto` — string values are sent as plain text, while Typst content (including
+  math written inside `$...$`) is rendered to SVG.
 
 Use `plain` for short text answers and `svg`/`png` for anything with math or
 formatting.

@@ -56,13 +56,15 @@ Write your notes as usual; each `definition(...)` both typesets the definition
 | `deck` | Target Anki deck. | `"Default"` |
 | `model` | Anki note type. | `"Basic"` |
 | `tags` | Array of tag strings. | `()` |
-| `format` | `"svg"`, `"png"`, or `"plain"` — how the fields render. | `"svg"` |
+| `format` | `"svg"`, `"png"`, `"plain"`, or `"auto"` — how the fields render. | `"svg"` |
 | `other` | Extra metadata passed through to AnkiConnect. | `none` |
 | `render` | Function transforming each field before it is rendered (advanced). | identity |
 
 A field's value may be a string, Typst content, or a `(value, format)`
 dictionary that overrides the format for that one field. `svg` cards are
 rendered as scalable, theme-aware images; `plain` fields are sent as text.
+With `format: "auto"`, string values are sent as plain text and Typst content,
+including math written inside `$...$`, is rendered as SVG.
 
 ### `configure(..)`
 

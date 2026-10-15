@@ -116,6 +116,7 @@
 //! ### Field Processing Logic
 //! - Fields with `format: "plain"` → Direct text content, no compilation
 //! - Fields with `format: "png"` or `format: "svg"` → Compiled to images, referenced by filename
+//! - `format: "auto"` → Typst content as SVG, string values as plain text
 //! - Default format (SVG) applied when no explicit format specified
 //! - AnkiConnect automatically generates `<img>` tags from filenames in `picture` array
 //!

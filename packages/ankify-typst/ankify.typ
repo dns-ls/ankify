@@ -78,6 +78,33 @@
     return data-without-content
 }
 
+// Resolve `format: "auto"` per field: Typst content (including equations
+// written with `$...$`) is rendered as SVG, while ordinary string values are
+// sent to Anki as text.
+#let metadata-data(data, default-format) = {
+  let result = (:)
+  for (key, value) in data {
+    let field-value = if type(value) == dictionary { value.value } else { value }
+    let requested-format = if type(value) == dictionary {
+      value.at("format", default: none)
+    } else {
+      none
+    }
+    let field-format = if requested-format == "auto" or (
+      requested-format == none and default-format == "auto"
+    ) {
+      if type(field-value) == str { "plain" } else { "svg" }
+    } else {
+      requested-format
+    }
+    result.insert(key, (
+      value: if type(field-value) == content { "" } else { field-value },
+      format: field-format,
+    ))
+  }
+  result
+}
+
 // Create a note.
 //
 // *Note:* This function creates a note which is visible to Ankify, but which
@@ -125,7 +152,7 @@
 //
 //   _Default:_ `none`
 //
-// - format (str): Rendering format (`"png"`, `"svg"`, `"plain"`).
+// - format (str): Rendering format (`"png"`, `"svg"`, `"plain"`, `"auto"`).
 //
 //   _Default:_ `"svg"`
 //
@@ -186,7 +213,7 @@
     // placeholder; the renderer reads it from document state instead.
     let metadata-note = (
       label: note-object.label,
-      data: filter-content(note-object.data),
+      data: metadata-data(note-object.data, note-object.format),
       model: note-object.model,
       deck: note-object.deck,
       tags: note-object.tags,
@@ -253,7 +280,7 @@
 //
 //     _Default:_ `"Default"`
 //
-//   - `format` (`str`): Default rendering format (`"png"`, `"svg"`, `"plain"`).
+//   - `format` (`str`): Default rendering format (`"png"`, `"svg"`, `"plain"`, `"auto"`).
 //
 //     _Default:_ `"svg"`
 //

@@ -57,8 +57,8 @@
           )
         } else if (subkey == "format") {
           assert(
-            subvalue in ("png", "svg", "plain"),
-            message: "Value of \"format\" in dictionary value of note data dictionary must be \"png\", \"svg\", or \"plain\"",
+            subvalue in ("png", "svg", "plain", "auto"),
+            message: "Value of \"format\" in dictionary value of note data dictionary must be \"png\", \"svg\", \"plain\", or \"auto\"",
           )
         }
       }
@@ -74,7 +74,7 @@
   label: z.string(assertions: (z.assert.length.min(1),)),
   deck: z.string(default: default-configuration.defaults.deck, assertions: (z.assert.length.min(1),)),
   model: z.string(default: default-configuration.defaults.model, assertions: (z.assert.length.min(1),)),
-  format: z.choice(("svg", "png", "plain"), default: default-configuration.defaults.format),
+  format: z.choice(("svg", "png", "plain", "auto"), default: default-configuration.defaults.format),
   tags: z.array(z.string(assertions: (z.assert.length.min(1),)), default: default-configuration.defaults.tags),
   render: z.function(default: default-configuration.defaults.render),
   data: z.any(
@@ -89,7 +89,7 @@
 #let defaults-schema = z.dictionary((
   deck: z.string(default: default-configuration.defaults.deck, assertions: (z.assert.length.min(1),)),
   model: z.string(default: default-configuration.defaults.model, assertions: (z.assert.length.min(1),)),
-  format: z.choice(("svg", "png", "plain"), default: default-configuration.defaults.format),
+  format: z.choice(("svg", "png", "plain", "auto"), default: default-configuration.defaults.format),
   tags: z.array(z.string(assertions: (z.assert.length.min(1),)), default: default-configuration.defaults.tags),
   render: z.function(default: default-configuration.defaults.render),
   other: z.any(types: (dictionary), optional: true),
