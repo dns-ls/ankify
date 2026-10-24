@@ -13,7 +13,7 @@ case "$(uname -s)" in
     ;;
 esac
 
-DEST="$DATA_DIR/typst/packages/local/ankify/0.1.0"
+DEST="$DATA_DIR/typst/packages/local/ankify/0.1.1"
 
 mkdir -p "$DEST"
 cp -R "$PACKAGE_DIR/." "$DEST/"
