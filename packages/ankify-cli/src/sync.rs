@@ -539,6 +539,7 @@ async fn sync_internal(ctx: &mut SyncContext, result: &mut SyncResult) -> Result
     let mut processed_notes =
         process_notes_with_hashes(&completed_metadata_notes, &compile_result.notes, &ctx.cache)
             .await?;
+    let source_lines = note_source_lines(&ctx.config.source_file, &processed_notes);
 
     // Recognise relabelled notes (so a rename updates the card in place instead
     // of duplicating it) and report cache entries with no matching note.
@@ -560,6 +561,7 @@ async fn sync_internal(ctx: &mut SyncContext, result: &mut SyncResult) -> Result
         &mut ctx.cache,
         result,
         &processed_notes,
+        &source_lines,
     )
     .await?;
 
@@ -1038,6 +1040,7 @@ async fn execute_requests(
     cache: &mut Cache,
     result: &mut SyncResult,
     processed_notes: &[ProcessedNote],
+    source_lines: &HashMap<String, Option<usize>>,
 ) -> Result<()> {
     // Log the request list (visible with `RUST_LOG=debug`).
     if let Ok(pretty) = serde_json::to_string_pretty(request_list) {
@@ -1050,9 +1053,29 @@ async fn execute_requests(
     for request_or_list in &request_list.requests {
         match request_or_list {
             RequestOrRequestList::Single(request) => {
-                let note_ids =
-                    execute_single_request(request, anki_client, http_client, cache, result)
-                        .await?;
+                let execution =
+                    execute_single_request(request, anki_client, http_client, cache, result).await;
+                let note_ids = match execution {
+                    Ok(note_ids) => note_ids,
+                    Err(error)
+                        if request.get("action").and_then(|a| a.as_str()) == Some("addNotes")
+                            && error
+                                .to_string()
+                                .contains("cannot create note because it is a duplicate") =>
+                    {
+                        return Err(duplicate_note_error(
+                            request,
+                            anki_client,
+                            http_client,
+                            processed_notes,
+                            cache,
+                            source_lines,
+                        )
+                        .await
+                        .unwrap_or(error));
+                    }
+                    Err(error) => return Err(error),
+                };
 
                 // Update cache for successfully added notes
                 if let Some(note_ids) = note_ids {
@@ -1068,6 +1091,7 @@ async fn execute_requests(
                     cache,
                     result,
                     processed_notes,
+                    source_lines,
                 ))
                 .await?;
             }
@@ -1075,6 +1099,80 @@ async fn execute_requests(
     }
 
     Ok(())
+}
+
+/// Locate each note's label in the source so duplicate diagnostics can point
+/// users to the corresponding Typst line. Labels are identifiers in Ankify's
+/// metadata; for labels generated dynamically, the line may be unavailable.
+fn note_source_lines(
+    source_file: &std::path::Path,
+    processed_notes: &[ProcessedNote],
+) -> HashMap<String, Option<usize>> {
+    let source = std::fs::read_to_string(source_file).ok();
+    processed_notes
+        .iter()
+        .map(|note| {
+            let line = source.as_ref().and_then(|source| {
+                source
+                    .lines()
+                    .position(|line| line.contains(&note.metadata.label))
+                    .map(|index| index + 1)
+            });
+            (note.metadata.label.clone(), line)
+        })
+        .collect()
+}
+
+/// AnkiConnect reports a duplicate for an entire addNotes batch. Ask
+/// canAddNotes for per-note results so the error can name only the rejected
+/// cards rather than every card in the batch.
+async fn duplicate_note_error(
+    add_request: &serde_json::Value,
+    anki_client: &AnkiConnect,
+    http_client: &Client,
+    processed_notes: &[ProcessedNote],
+    cache: &Cache,
+    source_lines: &HashMap<String, Option<usize>>,
+) -> Option<Error> {
+    let mut check_request = add_request.clone();
+    check_request["action"] = serde_json::Value::String("canAddNotes".to_string());
+    let response = http_client
+        .post(anki_client.url())
+        .json(&check_request)
+        .send()
+        .await
+        .ok()?;
+    let response: serde_json::Value = response.json().await.ok()?;
+    let can_add = response.get("result")?.as_array()?;
+
+    let submitted_notes: Vec<_> = processed_notes
+        .iter()
+        .filter(|note| !cache.contains(&note.metadata.label))
+        .collect();
+    let duplicates: Vec<_> = can_add
+        .iter()
+        .enumerate()
+        .filter(|(_, allowed)| allowed.as_bool() == Some(false))
+        .filter_map(|(index, _)| submitted_notes.get(index))
+        .collect();
+    if duplicates.is_empty() {
+        return None;
+    }
+
+    let cards = duplicates
+        .iter()
+        .map(
+            |note| match source_lines.get(&note.metadata.label).copied().flatten() {
+                Some(line) => format!("id '{}' (line {})", note.metadata.label, line),
+                None => format!("id '{}'", note.metadata.label),
+            },
+        )
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(Error::anki_connect(format!(
+        "AnkiConnect rejected duplicate card(s): {}",
+        cards
+    )))
 }
 
 /// Execute a single request against AnkiConnect.
