@@ -48,6 +48,22 @@ fn setup() {
             .join(PLUGIN_VERSION);
         let _ = fs::remove_dir_all(&dst);
         copy_dir(&src, &dst).expect("install ankify-typst test package");
+        // Fixtures and the CLI import PLUGIN_VERSION; the development package
+        // manifest may already declare a newer release.
+        let manifest_path = dst.join("typst.toml");
+        let manifest = fs::read_to_string(&manifest_path).expect("read test manifest");
+        let manifest = manifest
+            .lines()
+            .map(|line| {
+                if line.starts_with("version = ") {
+                    format!("version = \"{PLUGIN_VERSION}\"")
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(manifest_path, manifest).expect("align test package version");
         std::env::set_var("ANKIFY_USE_LOCAL_IMPORTS", "1");
     });
 }
@@ -234,6 +250,17 @@ fn add_notes(requests: &[Value]) -> &Value {
         .expect("an addNotes request")
 }
 
+/// Check the hidden ID prefix and return the review content after it.
+fn field_content<'a>(note: &'a Value, field: &str, label: &str) -> &'a str {
+    note["fields"][field]
+        .as_str()
+        .expect("field text")
+        .strip_prefix(&format!(
+            "<span style=\"display:none\" data-ankify-id>{label}</span> "
+        ))
+        .expect("field should start with its hidden note ID")
+}
+
 /// Width, in points, declared by an inline SVG's root `<svg>` element.
 fn svg_width_pt(svg: &str) -> f64 {
     let re = regex::Regex::new(r#"<svg[^>]*\bwidth="([0-9.]+)pt""#).unwrap();
@@ -248,9 +275,9 @@ fn svg_width_pt(svg: &str) -> f64 {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn plain_notes_carry_exact_field_text() {
+async fn plain_notes_preserve_field_text_after_hidden_id() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(defaults: (deck: "Plain Deck", tags: ("topic",)))
 #note("p1", format: "plain", data: (Front: "Question one", Back: "Answer one"))
 #note("p2", format: "plain", data: (Front: "Question two", Back: "Answer two"))
@@ -268,20 +295,81 @@ async fn plain_notes_carry_exact_field_text() {
 
     // Notes are sent in document order.
     assert_eq!(notes[0]["deckName"], "Plain Deck");
-    assert_eq!(notes[0]["fields"]["Front"], "Question one");
-    assert_eq!(notes[0]["fields"]["Back"], "Answer one");
+    assert_eq!(field_content(&notes[0], "Front", "p1"), "Question one");
+    assert_eq!(field_content(&notes[0], "Back", "p1"), "Answer one");
     assert_eq!(notes[0]["tags"], json!(["topic"]));
-    assert_eq!(notes[1]["fields"]["Front"], "Question two");
-    assert_eq!(notes[1]["fields"]["Back"], "Answer two");
+    assert_eq!(field_content(&notes[1], "Front", "p2"), "Question two");
+    assert_eq!(field_content(&notes[1], "Back", "p2"), "Answer two");
 
     // Plain-text notes attach no media.
     assert!(notes[0].get("picture").is_none_or(Value::is_null));
 }
 
 #[tokio::test]
+async fn auto_format_sorts_by_id_for_strings_and_typst_content() {
+    let project = TestProject::new(
+        r#"#import "@local/ankify:0.1.2": note, configure
+#configure(defaults: (format: "auto"))
+#note("1792000960530", data: (Front: "What about supervised learning labels?", Back: "Labels are known."))
+#note("1792050811419", data: (Front: [Classification $"precision"_"pos"$?], Back: [$"TP" / ("TP" + "FP")$]))
+"#,
+    );
+    let outcome = project.sync().await;
+    assert_eq!(outcome.result.expect("sync").notes_added, 2);
+    let notes = add_notes(&outcome.requests)["params"]["notes"]
+        .as_array()
+        .unwrap();
+    for (note, label) in notes.iter().zip(["1792000960530", "1792050811419"]) {
+        for field in ["Front", "Back"] {
+            field_content(note, field, label);
+            assert!(strip_html(note["fields"][field].as_str().unwrap()).starts_with(label));
+        }
+    }
+    assert_eq!(
+        field_content(&notes[0], "Front", "1792000960530"),
+        "What about supervised learning labels?"
+    );
+    assert!(field_content(&notes[1], "Front", "1792050811419").contains("<svg"));
+}
+
+#[tokio::test]
+async fn older_cache_receives_hidden_ids_once() {
+    let project = TestProject::new(
+        r#"#import "@local/ankify:0.1.2": note
+#note("existing", format: "plain", data: (Front: "Q", Back: "A"))
+"#,
+    );
+    project.sync().await.result.expect("initial sync");
+
+    let cache_path = project.root.join(".ankify/cache.json");
+    let mut cache: Value = serde_json::from_str(&fs::read_to_string(&cache_path).unwrap()).unwrap();
+    cache["existing"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sort_label");
+    fs::write(cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
+
+    let outcome = project.sync().await;
+    let result = outcome.result.expect("upgrade sync");
+    assert_eq!((result.notes_added, result.notes_updated), (0, 1));
+    let update = outcome
+        .requests
+        .iter()
+        .find(|r| r["action"] == "updateNote")
+        .unwrap();
+    assert_eq!(
+        field_content(&update["params"]["note"], "Front", "existing"),
+        "Q"
+    );
+
+    let result = project.sync().await.result.expect("unchanged sync");
+    assert_eq!((result.notes_updated, result.notes_unchanged), (0, 1));
+}
+
+#[tokio::test]
 async fn svg_notes_inline_themable_markup() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(defaults: (deck: "Svg Deck"))
 #note("s1", format: "svg", data: (Front: [Define $f$], Back: [$f(x) = x^2$]))
 "#,
@@ -332,7 +420,7 @@ async fn svg_notes_inline_themable_markup() {
 #[tokio::test]
 async fn png_notes_attach_valid_image_media() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(defaults: (deck: "Png Deck"))
 #note("g1", format: "png", data: (Front: [A picture], Back: [$1 + 1 = 2$]))
 "#,
@@ -343,6 +431,9 @@ async fn png_notes_attach_valid_image_media() {
     let note = &add_notes(&outcome.requests)["params"]["notes"][0];
     let pictures = note["picture"].as_array().expect("pictures");
     assert_eq!(pictures.len(), 2);
+    for field in ["Front", "Back"] {
+        assert_eq!(field_content(note, field, "g1"), "");
+    }
     for picture in pictures {
         let path = picture["path"].as_str().unwrap();
         assert!(path.ends_with(".png"));
@@ -360,7 +451,7 @@ async fn png_notes_attach_valid_image_media() {
 #[tokio::test]
 async fn cloze_cards_are_sent_as_plain_text() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": cloze, configure
+        r#"#import "@local/ankify:0.1.2": cloze, configure
 #configure(defaults: (deck: "Default", format: "svg"))
 #cloze("cz", "The capital of Japan is {{c1::Tokyo}}.")
 "#,
@@ -373,7 +464,7 @@ async fn cloze_cards_are_sent_as_plain_text() {
     // Despite the document default of `svg`, the field is the literal string,
     // so Anki sees the {{c1::}} marker.
     assert_eq!(
-        note["fields"]["Text"],
+        field_content(note, "Text", "cz"),
         "The capital of Japan is {{c1::Tokyo}}."
     );
 }
@@ -388,7 +479,7 @@ async fn cloze_cards_are_sent_as_plain_text() {
 #[tokio::test]
 async fn field_images_map_to_the_correct_note_field() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(scale: 1.0, defaults: (deck: "Mapping"))
 
 = A heading that renders before any notes
@@ -448,7 +539,7 @@ async fn configurable_scale_resizes_card_images() {
     let margin_pt = 2.0 * 5.0 / 25.4 * 72.0;
     let doc = |configure: &str| {
         format!(
-            r#"#import "@local/ankify:0.1.0": note, configure
+            r#"#import "@local/ankify:0.1.2": note, configure
 {configure}
 #note("sc", format: "svg", data: (Back: box(width: 100pt, height: 30pt, fill: black)))
 "#
@@ -486,7 +577,7 @@ async fn configurable_scale_resizes_card_images() {
 
 #[tokio::test]
 async fn incremental_sync_adds_updates_and_skips() {
-    let v1 = r#"#import "@local/ankify:0.1.0": note, configure
+    let v1 = r#"#import "@local/ankify:0.1.2": note, configure
 #configure(defaults: (deck: "Incremental"))
 #note("i1", format: "plain", data: (Front: "Q1", Back: "A1"))
 #note("i2", format: "plain", data: (Front: "Q2", Back: "A2"))
@@ -508,7 +599,7 @@ async fn incremental_sync_adds_updates_and_skips() {
 
     // Edit one note's content.
     project.write(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(defaults: (deck: "Incremental"))
 #note("i1", format: "plain", data: (Front: "Q1", Back: "A1 revised"))
 #note("i2", format: "plain", data: (Front: "Q2", Back: "A2"))
@@ -534,7 +625,7 @@ async fn incremental_sync_adds_updates_and_skips() {
 #[tokio::test]
 async fn renaming_a_label_updates_in_place_without_duplicating() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 #note("old-label", format: "plain", data: (Front: "Q", Back: "A"))
 "#,
     );
@@ -543,7 +634,7 @@ async fn renaming_a_label_updates_in_place_without_duplicating() {
 
     // Rename the label; the content is identical.
     project.write(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 #note("new-label", format: "plain", data: (Front: "Q", Back: "A"))
 "#,
     );
@@ -556,8 +647,8 @@ async fn renaming_a_label_updates_in_place_without_duplicating() {
             second.notes_updated,
             second.notes_unchanged,
         ),
-        (0, 0, 1),
-        "a pure rename should add and update nothing",
+        (0, 1, 0),
+        "a pure rename should update the hidden ID on the existing note",
     );
     assert!(
         second.warnings.is_empty(),
@@ -568,6 +659,15 @@ async fn renaming_a_label_updates_in_place_without_duplicating() {
         !outcome.requests.iter().any(|r| r["action"] == "addNotes"),
         "a renamed note must not be re-added to Anki",
     );
+    let update = outcome
+        .requests
+        .iter()
+        .find(|r| r["action"] == "updateNote")
+        .unwrap();
+    assert_eq!(
+        field_content(&update["params"]["note"], "Front", "new-label"),
+        "Q"
+    );
 }
 
 /// A note removed from the document is reported as an orphan; its Anki note is
@@ -575,7 +675,7 @@ async fn renaming_a_label_updates_in_place_without_duplicating() {
 #[tokio::test]
 async fn a_removed_note_is_reported_as_an_orphan() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 #note("keep", format: "plain", data: (Front: "Q1", Back: "A1"))
 #note("drop", format: "plain", data: (Front: "Q2", Back: "A2"))
 "#,
@@ -585,7 +685,7 @@ async fn a_removed_note_is_reported_as_an_orphan() {
 
     // Remove one note from the document.
     project.write(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 #note("keep", format: "plain", data: (Front: "Q1", Back: "A1"))
 "#,
     );
@@ -611,7 +711,7 @@ async fn a_removed_note_is_reported_as_an_orphan() {
 #[tokio::test]
 async fn emptying_the_document_reports_every_orphan() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 #note("first", format: "plain", data: (Front: "Q1", Back: "A1"))
 #note("second", format: "plain", data: (Front: "Q2", Back: "A2"))
 "#,
@@ -621,7 +721,7 @@ async fn emptying_the_document_reports_every_orphan() {
 
     // Remove every note from the document.
     project.write(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 
 = A document that no longer has any flashcards
 "#,
@@ -648,7 +748,7 @@ async fn emptying_the_document_reports_every_orphan() {
 #[tokio::test]
 async fn document_without_configure_does_not_crash() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note
+        r#"#import "@local/ankify:0.1.2": note
 #note("nc1", format: "plain", data: (Front: "Q", Back: "A"))
 "#,
     );
@@ -667,7 +767,7 @@ async fn document_without_configure_does_not_crash() {
 #[tokio::test]
 async fn per_field_formats_and_per_note_decks() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(defaults: (deck: "Default Deck"))
 #note(
   "mixed",
@@ -693,7 +793,7 @@ async fn per_field_formats_and_per_note_decks() {
     // Note 1: per-note deck override, plus a plain field and an SVG field
     // mixed within the same note via per-field `(format, value)` dicts.
     assert_eq!(notes[0]["deckName"], "Deck A");
-    assert_eq!(notes[0]["fields"]["Front"], "Plain question");
+    assert_eq!(field_content(&notes[0], "Front", "mixed"), "Plain question");
     let back = notes[0]["fields"]["Back"]
         .as_str()
         .expect("Back field value");
@@ -709,7 +809,7 @@ async fn per_field_formats_and_per_note_decks() {
 #[tokio::test]
 async fn document_with_no_notes_is_a_no_op() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": configure
+        r#"#import "@local/ankify:0.1.2": configure
 #configure(defaults: (deck: "Empty"))
 
 = A document with prose but no flashcards
@@ -736,7 +836,7 @@ async fn document_with_no_notes_is_a_no_op() {
 #[tokio::test]
 async fn an_empty_field_does_not_shift_the_mapping() {
     let project = TestProject::new(
-        r#"#import "@local/ankify:0.1.0": note, configure
+        r#"#import "@local/ankify:0.1.2": note, configure
 #configure(scale: 1.0, defaults: (deck: "Empty Field"))
 #note("ef", format: "svg", data: (
   A: box(width: 60pt, height: 20pt, fill: black),

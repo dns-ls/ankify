@@ -14,7 +14,7 @@ spaced-repetition flashcards out of them with very little extra effort.
 ## Usage
 
 ```typ
-#import "@preview/ankify:0.1.0": note, configure
+#import "@preview/ankify:0.1.2": note, configure
 
 #configure(defaults: (deck: "My Course"))
 

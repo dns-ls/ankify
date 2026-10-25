@@ -736,9 +736,14 @@ async fn process_notes_with_hashes(
             let existing_entry = cache.get(&metadata_note.label);
             let is_new = existing_entry.is_none();
 
+            // Hash the original content before adding the sort prefix, so a
+            // label change can still be recognised as a rename.
+            let mut anki_note = anki_note.clone();
+            prefix_fields_with_label(&mut anki_note, &metadata_note.label);
+
             Ok::<ProcessedNote, Error>(ProcessedNote {
                 metadata: (*metadata_note).clone(),
-                anki_note: (*anki_note).clone(),
+                anki_note,
                 field_hashes,
                 is_new,
             })
@@ -755,6 +760,33 @@ async fn process_notes_with_hashes(
     }
 
     Ok(processed_notes)
+}
+
+/// Anki strips HTML when deriving the browser's sort text. A hidden span
+/// therefore sorts by the Ankify label without showing it during review.
+/// Prefix every populated field because note types can sort by any field.
+fn prefix_fields_with_label(note: &mut AnkiNote, label: &str) {
+    let escaped = label
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    for (field, value) in &mut note.fields {
+        if let Some(content) = &mut value.0 {
+            let has_picture = note.picture.as_ref().is_some_and(|pictures| {
+                pictures.iter().any(|picture| {
+                    picture
+                        .fields
+                        .as_ref()
+                        .is_some_and(|fields| fields.contains(field))
+                })
+            });
+            if !content.trim().is_empty() || has_picture {
+                *content = format!(
+                    "<span style=\"display:none\" data-ankify-id>{escaped}</span> {content}"
+                );
+            }
+        }
+    }
 }
 
 /// A note's content fingerprint: its field hashes flattened into a canonical,
@@ -904,6 +936,9 @@ fn report_orphans(cache: &Cache, document_labels: &HashSet<String>, result: &mut
 /// moves cards between decks via `changeDeck`), so a deck change is not treated
 /// as an update here.
 fn note_changed(note: &ProcessedNote, cached: &CacheEntry) -> bool {
+    if cached.sort_label.as_ref().map(Label::as_str) != Some(note.metadata.label.as_str()) {
+        return true;
+    }
     // A field's content changed, or a field was added.
     for (field, new_hash) in &note.field_hashes {
         if cached.hash.get(field) != Some(new_hash) {

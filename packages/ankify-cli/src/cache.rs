@@ -96,6 +96,11 @@ pub struct CacheEntry {
     /// The label of the note, as parsed from the Typst file's metadata.
     pub label: Label,
 
+    /// Label last written as a hidden sort prefix. Older caches lack this,
+    /// so their notes receive the prefix on the next sync.
+    #[serde(default)]
+    pub sort_label: Option<Label>,
+
     /// The numeric `id` that Anki assigned to the note (for new notes,
     /// this will first be known when AnkiConnect responds to the addNotes request)
     pub id: NoteId,
@@ -250,6 +255,7 @@ impl Cache {
         let tags = note.tags.iter().map(|t| Tag::new(t.clone())).collect();
 
         let entry = CacheEntry {
+            sort_label: Some(label.clone()),
             label,
             id: note_id,
             tags,

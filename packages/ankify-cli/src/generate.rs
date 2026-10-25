@@ -24,7 +24,7 @@
 //!
 //! ```typst
 //! #import "../source.typ" as __ankify-source-file
-//! #import "@preview/ankify:0.1.0": __ankify-configuration, __ankify-notes
+//! #import "@local/ankify:0.1.2": __ankify-configuration, __ankify-notes
 //!
 //! #set page(width: 105mm, height: auto, margin: 5mm)
 //!
@@ -48,7 +48,7 @@ use crate::error::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const PLUGIN_VERSION: &str = "0.1.0";
+pub const PLUGIN_VERSION: &str = "0.1.2";
 
 /// Configuration for generating temporary Typst files.
 #[derive(Debug, Clone)]
@@ -152,7 +152,7 @@ fn generate_typst_content(relative_source_path: &str) -> Result<String> {
     }
 
     const TEMPLATE: &str = r#"#import "<<SOURCE>>" as __ankify-source-file
-#import "@preview/ankify:<<VERSION>>": __ankify-configuration, __ankify-notes
+#import "@local/ankify:<<VERSION>>": __ankify-configuration, __ankify-notes
 
 // Default geometry for the rendered card images. The user's `setup` function
 // (if any) is applied below and may override this.

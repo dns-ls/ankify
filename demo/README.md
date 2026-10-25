@@ -38,13 +38,13 @@ You need four things; all commands are run from the **repository root**.
    ```
 
 4. **The `ankify` Typst package**, installed locally so that
-   `@preview/ankify:0.1.0` resolves:
+   `@preview/ankify:0.1.2` resolves:
 
    ```sh
    # macOS
-   DEST="$HOME/Library/Application Support/typst/packages/preview/ankify/0.1.0"
-   # Linux:   ~/.local/share/typst/packages/preview/ankify/0.1.0
-   # Windows: %APPDATA%\typst\packages\preview\ankify\0.1.0
+   DEST="$HOME/Library/Application Support/typst/packages/preview/ankify/0.1.2"
+   # Linux:   ~/.local/share/typst/packages/preview/ankify/0.1.2
+   # Windows: %APPDATA%\typst\packages\preview\ankify\0.1.2
 
    mkdir -p "$DEST" && cp -r packages/ankify-typst/* "$DEST"
    ```

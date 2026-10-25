@@ -13,7 +13,7 @@
 //  ordinary Typst document: `typst compile demo/lecture.typ`.
 // =============================================================================
 
-#import "@preview/ankify:0.1.0": note, configure, basic, cloze
+#import "@preview/ankify:0.1.2": note, configure, basic, cloze
 
 // --- Ankify configuration ----------------------------------------------------
 // Document-wide defaults. Every card lands in the "Real Analysis" deck, carries

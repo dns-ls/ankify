@@ -27,6 +27,8 @@ The trick: you write a small helper function that both typesets an item in your
 notes *and* registers a flashcard for it. Define it once, and every definition
 or theorem in your document becomes a card.
 
+**This fork is vibecoded hard for my personal needs; don't expect this to be any good.**
+
 ## How it works
 
 The project has two parts:
@@ -83,14 +85,14 @@ flowchart TD
 ### Typst package
 
 Until `ankify` is published to the Typst Universe, install it locally so it can
-be imported as `@preview/ankify:0.1.0`. Copy `packages/ankify-typst/` into your
+be imported as `@preview/ankify:0.1.2`. Copy `packages/ankify-typst/` into your
 Typst package directory:
 
 ```sh
 # macOS
-DEST="$HOME/Library/Application Support/typst/packages/preview/ankify/0.1.0"
-# Linux:   ~/.local/share/typst/packages/preview/ankify/0.1.0
-# Windows: %APPDATA%\typst\packages\preview\ankify\0.1.0
+DEST="$HOME/Library/Application Support/typst/packages/preview/ankify/0.1.2"
+# Linux:   ~/.local/share/typst/packages/preview/ankify/0.1.2
+# Windows: %APPDATA%\typst\packages\preview\ankify\0.1.2
 
 mkdir -p "$DEST" && cp -r packages/ankify-typst/* "$DEST"
 ```
@@ -107,7 +109,7 @@ cargo install --path packages/ankify-cli
 ### A first card
 
 ```typ
-#import "@preview/ankify:0.1.0": note, configure
+#import "@preview/ankify:0.1.2": note, configure
 
 #configure(defaults: (deck: "My Course"))
 
@@ -129,7 +131,7 @@ ankify notes.typ
 `definition` / `theorem` helper once, then every use of it becomes a card:
 
 ```typ
-#import "@preview/ankify:0.1.0": note, configure
+#import "@preview/ankify:0.1.2": note, configure
 
 #configure(defaults: (deck: "Analysis", tags: ("analysis",)))
 
@@ -207,6 +209,12 @@ cards look too small, lower it towards `1.0` if they look too big. If you omit
 `configure()` entirely, built-in defaults are used.
 
 ### Re-syncing
+
+Each populated field includes a hidden note-ID prefix, so Anki's **Sort Field**
+(**Sortierfeld**) sorts by the ID passed to `note(...)` for text, SVG, and PNG
+notes alike. The browser shows the ID followed by any extracted field text;
+the prefix is hidden during review. Existing cached notes receive it on the
+next sync.
 
 Run `ankify notes.typ` again whenever you add or edit notes. Thanks to the
 cache, unchanged notes are skipped, edited notes are updated, and new notes are
